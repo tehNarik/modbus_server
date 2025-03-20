@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Список пристроїв</title>
+    <link rel="stylesheet" href="/styles.css">
+    <style>
+        .devices-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            padding: 20px;
+        }
+
+        .device-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+            background-color: #f9f9f9;
+            text-align: center;
+        }
+
+        .device-card p {
+            margin: 8px 0;
+        }
+
+        .details-btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 12px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: 0.3s;
+        }
+
+        .details-btn:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Список пристроїв</h1>
+    <div class="devices-container">
+        <% devices.forEach(device => { %>
+            <div class="device-card">
+                <p><strong>IP:</strong> <%= device.ip_adress %></p>
+                <p><strong>Port:</strong> <%= device.port %></p>
+                <a class="details-btn" href="/devices/<%= device._id %>">Переглянути деталі</a>
+            </div>
+        <% }); %>
+    </div>
+</body>
+</html>

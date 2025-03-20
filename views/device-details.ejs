@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Деталі пристрою</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .device-info, .sensor-item {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            text-align: left;
+        }
+
+        .back-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 15px;
+            background-color: #007bff;
+            color: white;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: 0.3s;
+        }
+
+        .back-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .time-range {
+            margin: 20px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Детальна інформація про пристрій</h1>
+        <div class="device-info">
+            <p><strong>IP:</strong> <span id="device-ip"><%= device.ip_adress %></span></p>
+            <p><strong>Port:</strong> <span id="device-port"><%= device.port %></span></p>
+        </div>
+
+        <h2>Останні дані сенсорів</h2>
+        <div id="sensor-container" class="sensor-grid"></div>
+
+        <div class="time-range">
+            <h3>Оберіть часовий інтервал:</h3>
+            <input type="datetime-local" id="start-time">
+            <input type="datetime-local" id="end-time">
+            <button onclick="fetchHistoricalSensors()">Завантажити історичні дані</button>
+        </div>
+
+        <canvas id="sensorChart"></canvas>
+
+        <a class="back-btn" href="/devices">Назад до списку</a>
+    </div>
+
+    <script>
+        let selectedSensors = {}; // Об'єкт для вибраних сенсорів
+        let allSensorsData = {}; // Дані всіх сенсорів
+        let sensorChart; // Глобальна змінна для графіка
+        let sensorColors = {}; // Зберігання кольорів для сенсорів
+
+        async function fetchSensors() {
+            try {
+                const response = await fetch('/devices/<%= device._id %>/latest-sensors');
+                const data = await response.json();
+
+                if (data.device) {
+                    document.getElementById('device-ip').textContent = data.device.ip_adress;
+                    document.getElementById('device-port').textContent = data.device.port;
+                }
+
+                const sensorContainer = document.getElementById('sensor-container');
+
+                data.latestSensors.forEach(sensor => {
+                    if (!allSensorsData[sensor.nameId]) {
+                        allSensorsData[sensor.nameId] = [];
+                        selectedSensors[sensor.nameId] = false; // За замовчуванням вимкнено
+                        sensorColors[sensor.nameId] = `hsl(${Math.random() * 360}, 70%, 50%)`; // Встановлення кольору
+
+                        // Додаємо чекбокс для вибору сенсора
+                        const sensorItem = document.createElement('div');
+                        sensorItem.classList.add('sensor-item');
+                        sensorItem.innerHTML = `
+                            <input type="checkbox" class="sensor-checkbox" id="checkbox-${sensor.nameId}" 
+                                onchange="toggleSensor('${sensor.nameId}')" />
+                            <label for="checkbox-${sensor.nameId}"><strong>NameID:</strong> ${sensor.nameId}</label>
+                            <p><strong>Value:</strong> <span id="sensor-${sensor.nameId}">${sensor.value}</span></p>
+                            <p><strong>Timestamp:</strong> <span id="time-${sensor.nameId}">${new Date(sensor.timestamp).toLocaleString()}</span></p>
+                        `;
+                        sensorContainer.appendChild(sensorItem);
+                    }
+                });
+
+            } catch (error) {
+                console.error('Помилка при отриманні даних:', error);
+            }
+        }
+
+
+        function toggleSensor(nameId) {
+            selectedSensors[nameId] = !selectedSensors[nameId];
+            updateChart();
+        }
+
+        function updateChart() {
+            if (!sensorChart) {
+                const ctx = document.getElementById('sensorChart').getContext('2d');
+                sensorChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: []
+                    },
+                    options: {
+                        responsive: true,
+                        animation: false,
+                        scales: {
+                            x: { title: { display: true, text: 'Час' } },
+                            y: { title: { display: true, text: 'Значення' } }
+                        }
+                    }
+                });
+            }
+
+            const activeSensorIds = Object.keys(selectedSensors).filter(nameId => selectedSensors[nameId]);
+
+            if (activeSensorIds.length > 0) {
+                sensorChart.data.labels = allSensorsData[activeSensorIds[0]].map(d => d.timestamp);
+            }
+
+            sensorChart.data.datasets = activeSensorIds.map(nameId => ({
+                label: `Sensor ${nameId}`,
+                data: allSensorsData[nameId].map(d => d.value),
+                borderColor: sensorColors[nameId],
+                fill: false
+            }));
+
+            sensorChart.update();
+        }
+        let isViewingHistory = false; // Флаг для контролю оновлення реальних даних
+
+async function fetchLatestSensors() {
+    if (isViewingHistory) return; // Якщо переглядаємо історію, не оновлюємо
+
+    try {
+        const response = await fetch('/devices/<%= device._id %>/latest-sensors');
+        const data = await response.json();
+
+        data.latestSensors.forEach(sensor => {
+            if (!allSensorsData[sensor.nameId]) {
+                allSensorsData[sensor.nameId] = [];
+            }
+
+            allSensorsData[sensor.nameId].push({
+                value: sensor.value,
+                timestamp: new Date(sensor.timestamp).toLocaleTimeString()
+            });
+
+            if (allSensorsData[sensor.nameId].length > 20) {
+                allSensorsData[sensor.nameId].shift();
+            }
+
+            document.getElementById(`sensor-${sensor.nameId}`).textContent = sensor.value;
+            document.getElementById(`time-${sensor.nameId}`).textContent = new Date(sensor.timestamp).toLocaleString();
+        });
+
+        updateChart();
+    } catch (error) {
+        console.error('Помилка при оновленні даних:', error);
+    }
+}
+
+async function fetchHistoricalSensors() {
+    isViewingHistory = true; // Відключаємо оновлення поточних даних
+
+    const startTime = new Date(document.getElementById('start-time').value).toISOString();
+    const endTime = new Date(document.getElementById('end-time').value).toISOString();
+
+    try {
+        const response = await fetch(`/devices/<%= device._id %>/historical-sensors?start=${startTime}&end=${endTime}`);
+        const data = await response.json();
+
+        allSensorsData = {}; // Очищаємо старі дані перед завантаженням нових
+
+        data.historicalSensors.forEach(sensor => {
+            if (!allSensorsData[sensor.nameId]) {
+                allSensorsData[sensor.nameId] = [];
+            }
+
+            allSensorsData[sensor.nameId].push({
+                value: sensor.value,
+                timestamp: new Date(sensor.timestamp).toLocaleTimeString()
+            });
+        });
+
+        updateChart();
+    } catch (error) {
+        console.error('Помилка при отриманні історичних даних:', error);
+    }
+}
+
+function exitHistoricalView() {
+    isViewingHistory = false; // Повертаємо оновлення поточних даних
+    fetchLatestSensors(); // Отримуємо актуальні дані після виходу з історії
+}
+
+// Запускаємо періодичне оновлення тільки якщо не переглядаємо історичні дані
+setInterval(() => {
+    if (!isViewingHistory) {
+        fetchLatestSensors();
+    }
+}, 2000);
+
+// Перший запит
+fetchSensors();
+fetchLatestSensors();
+
+    </script>
+</body>
+</html>

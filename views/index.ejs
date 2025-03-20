@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Моніторинг пристроїв</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+</head>
+<body>
+    <h1>Моніторинг пристроїв</h1>
+
+    <label for="device-select">Оберіть пристрій:</label>
+    <select id="device-select">
+        <option value="">-- Виберіть пристрій --</option>
+    </select>
+
+    <h2>Датчики</h2>
+    <div id="sensors-list"></div>
+
+    <canvas id="chartCanvas"></canvas>
+
+    <script>
+        const deviceSelect = document.getElementById("device-select");
+const sensorsList = document.getElementById("sensors-list");
+const ctx = document.getElementById("chartCanvas").getContext("2d");
+let chart;
+
+// Отримання списку пристроїв
+async function fetchDevices() {
+    const response = await fetch("/devices");
+    const devices = await response.json();
+    deviceSelect.innerHTML = `<option value="">-- Виберіть пристрій --</option>`;
+    devices.forEach(device => {
+        const option = document.createElement("option");
+        option.value = device.device_id;
+        option.textContent = `Пристрій ${device.device_id} (${device.ip_adress}:${device.port})`;
+        deviceSelect.appendChild(option);
+    });
+}
+
+// Отримання датчиків вибраного пристрою
+async function fetchSensors(deviceId) {
+    const response = await fetch(`/device/${deviceId}/sensors`);
+    const sensors = await response.json();
+    sensorsList.innerHTML = "";
+    sensors.forEach(sensor => {
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = sensor.id;
+        checkbox.classList.add("sensor-checkbox");
+
+        const label = document.createElement("label");
+        label.textContent = ` ${sensor.nameId}`;
+        
+        sensorsList.appendChild(checkbox);
+        sensorsList.appendChild(label);
+        sensorsList.appendChild(document.createElement("br"));
+    });
+}
+
+// Отримання даних для вибраних датчиків
+async function fetchSensorData(sensorIds) {
+    const datasets = await Promise.all(sensorIds.map(async sensorId => {
+        console.log("sensorID is " + sensorId)
+        const response = await fetch(`/sensor/${sensorId}/data`);
+
+        console.log("response is " + response)
+        const sensorsData = await response.json();
+
+        console.log("Отримані дані для сенсора:", sensorsData); // Додаємо лог
+
+        if (Array.isArray(sensorsData)) {
+            return {
+                label: `Сенсор ${sensorId}`,
+                data: sensorsData.map(d => ({ x: new Date(d.timestamp), y: d.value })),
+                borderColor: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                fill: false
+            };
+        } else {
+            console.error(`Дані для сенсора ${sensorId} не є масивом.`);
+            return {};  // Якщо дані не є масивом, не додаємо в графік
+        }
+    }));
+
+    // Оновлюємо графік тільки після того, як отримано всі дані
+    updateChart(datasets);
+}
+
+
+// Оновлення графіка
+function updateChart(datasets) {
+    if (chart) {
+        chart.destroy();
+    }
+
+    chart = new Chart(ctx, {
+        type: "line",
+        data: { datasets },
+        options: {
+            responsive: true,
+            scales: {
+                x: { type: "time", time: { unit: "minute" } },
+                y: { beginAtZero: false }
+            }
+        }
+    });
+}
+
+// Події
+deviceSelect.addEventListener("change", async () => {
+    const deviceId = deviceSelect.value;
+    
+    if (deviceId) {
+        await fetchSensors(deviceId);
+    }
+});
+
+sensorsList.addEventListener("change", async () => {
+    const selectedSensors = Array.from(document.querySelectorAll(".sensor-checkbox:checked")).map(cb => cb.value);
+    if (selectedSensors.length > 0) {
+        await fetchSensorData(selectedSensors);
+    }
+});
+
+// Завантаження пристроїв при старті
+fetchDevices();
+
+    </script>
+</body>
+</html>
