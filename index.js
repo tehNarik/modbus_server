@@ -202,21 +202,10 @@ async function readModbusData(IPadress, port) {
     client.setID(deviceID);
 
     try {
-        // const coolingOut = await client.readInputRegisters(50, 2);
-        // const DHWOut = await client.readInputRegisters(48, 2);
-        // const heatingOut = await client.readInputRegisters(46, 2);
-
         const groupRegisters = await client.readInputRegisters(startRegister, registersCount);
 
-        // const floatCoolingOut = modbusRegistersToFloat(coolingOut.data, true);
-        // const floatDHWOut = modbusRegistersToFloat(DHWOut.data, true);
-        // const floatHeatingOut = modbusRegistersToFloat(heatingOut.data, true);
-
         const groupFloatRegisters = modbusRegistersToFloat(groupRegisters.data, true);
-
-        // console.log("CoolingOut:", floatCoolingOut);
-        // console.log("DHWOut:", floatDHWOut);
-        // console.log("HeatingOut:", floatHeatingOut);
+;
 
         //saveToMongoDB(IPadress, port, deviceID, groupFloatRegisters)
         console.log("--- NEW RECORD ---")
