@@ -1,10 +1,11 @@
 import mqtt from "mqtt";
 import ModbusRTU from "modbus-serial";
-
+const clientModbus = new ModbusRTU();
 var mqttClient;
 
-const mqttHost = "127.0.0.1";
+//const mqttHost = "127.0.0.1";
 const protocol = "mqtt";
+const mqttHost = "3.79.235.175"
 const port = "1883";
 const modbusReadIP = "91.225.166.71";
 const modbusReadPort = 850;
@@ -24,34 +25,7 @@ async function readModbusData(IPaddress, port) {
     try {
         const groupRegisters = await client.readInputRegisters(startRegister, registersCount);
         const groupFloatRegisters = modbusRegistersToFloat(groupRegisters.data, true);
-        
-        
-        // Підключення до Modbus slave
-        client.connectTCP("127.0.0.1", { port: 502 }) // Вкажіть адресу та порт Modbus slave
-            .then(() => {
-                client.setID(1); // ID вашого Modbus slave
-                console.log("Connected to Modbus slave!");
-        
-                // Масив чисел, які потрібно записати
-                const numbersToWrite = [1234, 5678, 9101, 1121];
-                const startingAddress = 10; // Початкова адреса запису
-        
-                // Записуємо масив чисел у Holding Registers
-                return client.writeRegisters(startingAddress, numbersToWrite);
-            })
-            .then(() => {
-                console.log("Data successfully written to Modbus registers!");
-                client.close();
-            })
-            .catch(err => {
-                console.error("Error: ", err);
-                //client.close();
-            });
-        
-
-        publishMessage("modbus/data", JSON.stringify(groupFloatRegisters));
-        //console.log("--- NEW RECORD ---");
-        //console.log(groupFloatRegisters);
+        publishMessage("HP1/output/all", JSON.stringify(groupFloatRegisters));
     } catch (error) {
         console.error("Error:", error);
     } finally {
@@ -105,30 +79,32 @@ function connectToBroker() {
 
     mqttClient.on("connect", () => {
         //console.log("Client connected:" + clientId);
-        mqttClient.subscribe("modbus/write", (err) => {
+        mqttClient.subscribe("HP1/output/all", (err) => {
             if (!err) {
-                console.log("Subscribed to topic: modbus/write");
+                console.log("Subscribed to topic: HP1/output/all");
+            }
+        });
+        mqttClient.subscribe("HP1/input/3", (err) => {
+            if (!err) {
+                console.log("Subscribed to topic: HP1/input/3");
             }
         });
     });
 
-    mqttClient.on("message", async (topic, message) => {
-        console.log("Received Message: " + message.toString() + "\nOn topic: " + topic);
-        if (topic === "modbus/data") {
-            const data = JSON.parse(message);
-            const client = new ModbusRTU();
-            try {
-                await client.connectTCP(modbusWriteIP, { port: modbusWritePort });
-                client.setID(1);
-                await client.writeRegister(data.address, data.value);
-                console.log("Data sent to local Modbus.");
-            } catch (error) {
-                console.error("Error writing to Modbus:", error);
-            } finally {
-                client.close();
-            }
+
+    mqttClient.on('message', (topic, message) => {
+        // const parts = topic.split("/"); // Розбиваємо топік на частини
+        // const sensorID = parts[2];
+        // HP1/input/3,      де HP1 це унікальна малінка, input прапорець на запис даних, 3 - номер датчика, який необхідно записати
+        if (topic.includes("input")) {
+            const parts = topic.split("/"); // Розбиваємо топік на частини
+            const sensorID = parts[2]; // Отримуємо третій елемент (індекс 2)
+            console.log(`Записано в HP1 датчик ${sensorID}: ${message}`)
+
+            let number = JSON.parse(message.toString());
+            connectAndWriteArray(number, sensorID);
         }
-    });
+});
 }
 
 function floatToRegisters(value) {
@@ -137,74 +113,43 @@ function floatToRegisters(value) {
     return [buffer.readUInt16BE(0), buffer.readUInt16BE(2)];
 }
 
+async function connectAndWriteArray(floatValue, sensorID) {
+    let attempt = 0;
+    const maxAttempts = 3; // Максимальна кількість спроб підключення
+    const delay = 2000; // Затримка між спробами (2 секунди)
 
-async function connectAndWriteArray(arrayData) {
-    try {
-        const client = new ModbusRTU();
-        console.log("Спроба підключення до Modbus...");
-        await client.connectTCP("127.0.0.1", { port: 502 });
-        console.log("Підключено!");
+    while (attempt < maxAttempts) {
+        try {
+            // Спроба підключення до сервера
+            console.log(`Спроба підключення... (${attempt + 1}/${maxAttempts})`);
+            await clientModbus.connectTCP(modbusWriteIP, { port: modbusWritePort });
+            clientModbus.setID(1);
 
-        client.setID(1);
-
-        for(let i=0; i<arrayData.length; i++){
-            const floatValue = arrayData[i];
             const registers = floatToRegisters(floatValue);
-            await client.writeRegisters(i*2, registers);
-            //console.log(`Float ${arrayData[i]} записано у регістри ${i}-${i+1}`)
+            await clientModbus.writeRegisters(sensorID * 2, registers);
+            clientModbus.close();
+            console.log(`Число ${floatValue} в датчик ${sensorID} записано!`);
+            return; // Виходимо з функції після успішного виконання
+        } catch (error) {
+            attempt++;
+            console.error(`Помилка підключення: ${error.message}`);
+            if (attempt < maxAttempts) {
+                console.log(`Чекаємо ${delay / 1000} секунд перед наступною спробою...`);
+                await new Promise(resolve => setTimeout(resolve, delay)); // Затримка перед повтором
+            } else {
+                console.log("Не вдалося підключитися після кількох спроб.");
+                console.log(`Число ${floatValue} в датчик ${sensorID} НЕ записано!`);
+            }
         }
-
-        // Запис одного float числа у регістр 10-11
-        // const floatValue = 12.34;
-        // const registers = floatToRegisters(floatValue);
-        // await client.writeRegisters(10, registers);
-        // console.log(`Float ${floatValue} записано у регістри 10-11:`, registers);
-
-        
-
-        client.close();
-        console.log("З'єднання закрито");
-    } catch (error) {
-        console.error("Помилка підключення:", error);
     }
 }
 
-// Функція для публікації повідомлень у MQTT брокер
+
 function publishMessage(topic, message) {
-    console.log(`Sending Topic: ${topic}, Message: ${message}`);
-    mqttClient.publish(topic, message, { qos: 0, retain: false });
+    //console.log(`Sending Topic: ${topic}, Message: ${message}`);
+    mqttClient.publish(topic, message, { qos: 0, retain: true });
 }
 
-const client = mqtt.connect('mqtt://127.0.0.1:1883'); // замініть на адресу вашого брокера
-
-// Коли підключення буде успішним
-client.on('connect', () => {
-    console.log('Підключено до брокера');
-
-    // Підписка на топік
-    client.subscribe('modbus/data', (err) => {
-        if (!err) {
-            console.log('Успішно підписано на топік "my/topic"');
-        } else {
-            console.error('Помилка підписки', err);
-        }
-    });
-});
-
-// Обробка повідомлень, які приходять на топік
-client.on('message', (topic, message) => {
-    // Виводимо топік і повідомлення
-    // можна зробити різні топіки для різних сенсорів та імена записувати в бд
-    let numericArray = JSON.parse(message.toString());
-
-    // Виконуємо подальші операції з масивом
-    connectAndWriteArray(numericArray);
-    //console.log(`Топік: ${topic}`);
-    //console.log(`Повідомлення: ${message.toString()}`);
-});
-
-// Підключення до брокера
 connectToBroker();
 
-// Зчитування даних з віддаленого Modbus та публікація в MQTT
 setInterval(() => readModbusData(modbusReadIP, modbusReadPort), 2000);
